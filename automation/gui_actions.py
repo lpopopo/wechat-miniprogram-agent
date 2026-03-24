@@ -1,8 +1,11 @@
 """
 GUI Action Executor.
 Translates high-level action dicts from the LLM into pyautogui calls.
+Cross-platform: macOS and Windows.
 """
 
+import subprocess
+import sys
 import time
 from typing import Any, Dict
 
@@ -10,16 +13,46 @@ import pyautogui
 
 from config.settings import ACTION_DELAY
 
+IS_MAC = sys.platform == "darwin"
+IS_WIN = sys.platform == "win32"
+
 # Safety: pyautogui will raise FailSafeException when the mouse
 # moves into the upper-left corner of the screen.
 pyautogui.FAILSAFE = True
 pyautogui.PAUSE = 0.25  # small default pause between pyautogui calls
 
 
+def _set_clipboard(text: str) -> bool:
+    """Copy *text* to the system clipboard (cross-platform)."""
+    if IS_MAC:
+        try:
+            proc = subprocess.run(
+                ["pbcopy"],
+                input=text.encode("utf-8"),
+                check=True,
+            )
+            return True
+        except Exception as e:
+            print(f"[WARN] pbcopy failed: {e}")
+            return False
+    elif IS_WIN:
+        try:
+            import win32clipboard
+            import win32con
+            win32clipboard.OpenClipboard()
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardText(text, win32con.CF_UNICODETEXT)
+            win32clipboard.CloseClipboard()
+            return True
+        except Exception as e:
+            print(f"[WARN] win32clipboard failed: {e}")
+            return False
+    return False
+
+
 class GUIActionExecutor:
     """Execute GUI actions returned by the LLM Agent."""
 
-    # Supported action types
     SUPPORTED_ACTIONS = {
         "click",
         "double_click",
@@ -30,6 +63,7 @@ class GUIActionExecutor:
         "move",
         "wait",
         "done",
+        "multi_action",
     }
 
     def execute(self, action: Dict[str, Any]) -> Dict[str, Any]:
@@ -77,7 +111,6 @@ class GUIActionExecutor:
     # ------------------------------------------------------------------ #
     def _do_click(self, action: Dict) -> Dict:
         x, y = int(action["x"]), int(action["y"])
-        # Move the mouse smoothly to the coordinate so the UI registers hover state
         pyautogui.moveTo(x, y, duration=0.2)
         time.sleep(0.1)
         pyautogui.click()
@@ -95,17 +128,13 @@ class GUIActionExecutor:
 
     def _do_type(self, action: Dict) -> Dict:
         text = str(action.get("text", ""))
-        # If coordinates are provided, click first
         if "x" in action and "y" in action:
             x, y = int(action["x"]), int(action["y"])
-            # Move the mouse smoothly to the coordinate so the UI registers hover state
             pyautogui.moveTo(x, y, duration=0.2)
             time.sleep(0.1)
-            # Click once to avoid triggering window maximize/restore on title bar
             pyautogui.click()
-            time.sleep(0.5)  # give it more time for the focus animation
+            time.sleep(0.5)
 
-        # Handle 'enter' presses derived from newlines
         has_newline = '\n' in text
         clean_text = text.replace('\n', '')
 
@@ -113,27 +142,19 @@ class GUIActionExecutor:
             if clean_text.isascii():
                 pyautogui.typewrite(clean_text, interval=0.05)
             else:
-                # For Chinese characters, use clipboard to Paste (reliable in most apps)
-                try:
-                    import win32clipboard
-                    import win32con
-                    
-                    win32clipboard.OpenClipboard()
-                    win32clipboard.EmptyClipboard()
-                    # Use Unicode format for non-ASCII
-                    win32clipboard.SetClipboardText(clean_text, win32con.CF_UNICODETEXT)
-                    win32clipboard.CloseClipboard()
-                    
-                    # Perform Paste action
-                    pyautogui.hotkey("ctrl", "v")
+                # Non-ASCII (e.g. Chinese): use clipboard paste
+                if _set_clipboard(clean_text):
+                    if IS_MAC:
+                        pyautogui.hotkey("command", "v")
+                    else:
+                        pyautogui.hotkey("ctrl", "v")
                     time.sleep(0.2)
-                except Exception as e:
-                    # Fallback to write if clipboard fails
+                else:
+                    # Last-resort fallback
                     pyautogui.write(clean_text)
-                    return {"success": True, "message": f"Typed (fallback): {text!r} - error: {e}"}
+                    return {"success": True, "message": f"Typed (fallback write): {text!r}"}
 
         if has_newline:
-            # Press enter for each newline found
             for _ in range(text.count('\n')):
                 pyautogui.press('enter')
                 time.sleep(0.2)
@@ -144,6 +165,9 @@ class GUIActionExecutor:
         keys = action.get("keys", [])
         if isinstance(keys, str):
             keys = keys.split("+")
+        # On macOS, translate common ctrl shortcuts to cmd
+        if IS_MAC:
+            keys = ["command" if k == "ctrl" else k for k in keys]
         pyautogui.hotkey(*keys)
         return {"success": True, "message": f"Hotkey: {'+'.join(keys)}"}
 
@@ -170,3 +194,25 @@ class GUIActionExecutor:
     def _do_done(self, action: Dict) -> Dict:
         summary = action.get("summary", "Task completed")
         return {"success": True, "message": f"Done – {summary}"}
+
+    def _do_multi_action(self, action: Dict) -> Dict:
+        """Execute a list of sub-actions sequentially in a single step.
+
+        Example::
+            {
+                "type": "multi_action",
+                "actions": [
+                    {"type": "click", "x": 50, "y": 300},
+                    {"type": "click", "x": 50, "y": 360},
+                    {"type": "click", "x": 207, "y": 700}
+                ]
+            }
+        """
+        sub_actions = action.get("actions", [])
+        messages = []
+        for sub in sub_actions:
+            result = self.execute(sub)
+            messages.append(result.get("message", ""))
+            if not result["success"]:
+                return {"success": False, "message": f"Sub-action failed: {result['message']}"}
+        return {"success": True, "message": f"Multi-action completed ({len(sub_actions)} steps): " + " | ".join(messages)}

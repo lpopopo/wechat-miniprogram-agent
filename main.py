@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 WeChat Mini Program Automation Agent – Entry Point.
 

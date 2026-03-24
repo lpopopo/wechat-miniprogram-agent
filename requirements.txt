@@ -1,7 +1,15 @@
 # GUI Automation
 pyautogui==0.9.54
-pywinauto==0.6.8
 Pillow>=10.0.0
+
+# macOS accessibility (window management)
+pyobjc-core>=10.0; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10.0; sys_platform == "darwin"
+
+# Windows-only (kept for cross-platform compatibility)
+pywinauto==0.6.8; sys_platform == "win32"
+pywin32>=306; sys_platform == "win32"
 
 # LLM Integration
 openai>=1.30.0

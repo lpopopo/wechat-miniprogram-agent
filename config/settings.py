@@ -1,6 +1,7 @@
 """Configuration settings for the WeChat Mini Program Agent."""
 
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,10 +25,16 @@ ACTION_DELAY = float(os.getenv("ACTION_DELAY", "0.5"))  # seconds between action
 # WeChat Configuration
 # ============================================================
 WECHAT_WINDOW_TITLE = os.getenv("WECHAT_WINDOW_TITLE", "微信")
-WECHAT_EXE_PATH = os.getenv(
-    "WECHAT_EXE_PATH",
-    r"C:\Program Files (x86)\Tencent\WeChat\WeChat.exe"
-)
+
+# Default WeChat path by platform
+if sys.platform == "darwin":
+    _default_wechat_path = "WeChat"  # macOS: app bundle name for 'open -a'
+elif sys.platform == "win32":
+    _default_wechat_path = r"C:\Program Files (x86)\Tencent\WeChat\WeChat.exe"
+else:
+    _default_wechat_path = "WeChat"
+
+WECHAT_EXE_PATH = os.getenv("WECHAT_EXE_PATH", _default_wechat_path)
 
 # Target mini program name
 TARGET_MINIPROGRAM = os.getenv("TARGET_MINIPROGRAM", "")

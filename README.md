@@ -24,6 +24,16 @@ wechat-miniprogram-agent/
 
 ## 快速开始
 
+### 环境要求
+
+- Python 3.9+
+- macOS 10.15+ 或 Windows 10+
+- 微信桌面客户端（Mac 版 / Windows 版）
+
+**macOS 额外要求：** 需要在「系统设置 → 隐私与安全性」中授权以下权限：
+- **辅助功能**（Accessibility）：允许终端/Python 控制鼠标键盘
+- **屏幕录制**（Screen Recording）：允许截图
+
 ### 1. 安装依赖
 
 ```bash
